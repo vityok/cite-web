@@ -236,6 +236,23 @@
 
 ;;---------------------------------------------------------
 
+(tbnl:define-easy-handler (h-about :uri "/about.html"
+				   :default-request-type :get)
+    ()
+  (with-html
+      (:html
+       (:head
+	(:title "Про Wikipedia Cite web template generator"))
+       (:body
+	(:p "“Wikipedia Cite web template generator” дозволяє швидко та зручно заповнювати шаблон "
+	    (:a :href "http://uk.wikipedia.org/wiki/Шаблон:Cite_web" "Cite web")
+	    " для вказаних інтернет-ресурсів.")
+	(:p "Програмні коди програми можна переглянути на сторінці проекту "
+	    (:a :href "https://github.com/vityok/cite-web" "на сайті GitHub"))
+	(:p (:a :href "article.html" "Повернутись на головну сторінку"))))))
+
+;;---------------------------------------------------------
+
 (tbnl:define-easy-handler (h-article-template :uri "/article.html"
 					      :default-request-type :get)
     ((url :parameter-type 'string))
@@ -246,24 +263,28 @@
        (:body
 	(:form :method :get :action "/article.html"
 	       (:span "Адреса статті: ")
-	       (:input :type :text :name "url" :size 40 :value url)
+	       (:input :type :text :name "url" :size 50 :value url)
 	       (:input :type :submit))
 	(when url
 	  (who:htm
 	   (:p "Шаблон для Вікіпедії:")
 	   (:pre
-	    (who:esc (process-article-url url)))))))))
+	    (who:esc (process-article-url url)))))
+	(:p (:a :href "about.html" "Про програму"))))))
 
 ;;---------------------------------------------------------
 
 (defun run-web-server ()
   (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port 4141))
+  (format *standard-output* "Now it is time to visit http://localhost:4141/article.html~%")  
   ;; the acceptor runs in a separate thread. In order to prevent
   ;; premature logoped exit join all threads. Even if execution does
   ;; not go past this cycle it still will keep the server alive
   (dolist (thread (bt:all-threads))
     (bt:join-thread thread)))
 
-(format *standard-output* "Evaluate (run-web-server) to start serving requests on the web")
+;;---------------------------------------------------------
+
+(format *standard-output* "Evaluate (run-web-server) to start serving requests on the web~%")
 
 ;; EOF
