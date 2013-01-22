@@ -1,4 +1,4 @@
-;;; -*- package: CL-USER; Syntax: Common-lisp; Base: 10 -*-
+;;; -*- package: CITE-WEB; Syntax: Common-lisp; Base: 10 -*-
 
 ;;; завантаження вказаних статей та формування шаблону cite web для
 ;;; вікіпедії
@@ -18,10 +18,49 @@
 
 ;;---------------------------------------------------------
 
+(defpackage :cite-web
+  (:use :cl)
+  (:nicknames :cw)
+  (:export :run-web-server))
+
+(in-package :cite-web)
+
+;;---------------------------------------------------------
+
 ;; use cl-interpol, i.e. the reader converts
 ;; #?" ${a} " to a string where the value of the symbol a is
 ;; substituted
 (interpol:enable-interpol-syntax)
+
+;;---------------------------------------------------------
+
+(defvar *parser-alist* nil
+  "Association list of domains and handlers defined by
+DEFINE-EASY-PARSER")
+
+;;---------------------------------------------------------
+
+(defmacro define-easy-parser (uri name lambda-list &body body)
+  "Макрос для визначення простих обробників доменів.
+
+Приклад використання:
+
+  (define-easy-parser \"домен.ком\" process-domain (url) тіло обробника)
+
+Замість `url' можна вказувати інші назви для основного і єдиного
+параметра - посилання, що слід обробити."
+  `(progn
+     (push (list ,uri ',name) *parser-alist*)
+     (defun ,name ,lambda-list ,@body)))
+
+;;---------------------------------------------------------
+
+(defun dispatch-easy-parser (uri-host)
+  "Шукає обробника для вказаного хоста. Повертає NIL якщо не вдалось
+знайти обробника."
+  (loop :for (uri easy-parser) :in *parser-alist*
+     :when (search uri uri-host)
+     :do (return easy-parser)))
 
 ;;---------------------------------------------------------
 
@@ -48,14 +87,15 @@
 
 ;;---------------------------------------------------------
 
-(defun process-ukrinform (url)
+(define-easy-parser "ukrinform.ua" process-ukrinform
+  (url)
   (let* ((article-page (drakma:http-request url))
 	 (article-title (ppcre:register-groups-bind (title)
-			    (#?r"<h1>([^<]+)</h1>" article-page)
-			  title))
+						    (#?r"<h1>([^<]+)</h1>" article-page)
+						    title))
 	 (article-date (ppcre:register-groups-bind (date)
-			   (#?r"<div class=\"date\"><span class=\"time\">[^<]+</span> (.+)</div>" article-page)
-			 date)))
+						   (#?r"<div class=\"date\"><span class=\"time\">[^<]+</span> (.+)</div>" article-page)
+						   date)))
     (make-cite-web :url url
 		   :title article-title
 		   :publisher "УкрІнформ"
@@ -70,7 +110,8 @@
 
 ;;---------------------------------------------------------
 
-(defun process-wsj (url)
+(define-easy-parser "online.wsj.com" process-wsj
+  (url)
   (let* ((article-page (drakma:http-request url))
 	 (article-title "")
 	 (article-author "")
@@ -100,7 +141,7 @@
 
 ;;---------------------------------------------------------
 
-(defun process-zeit (url)
+(define-easy-parser "zeit.de" process-zeit (url)
   (let* ((article-page (drakma:http-request url))
 	 (article-url url)
 	 (article-title "")
@@ -143,7 +184,8 @@
 
 ;;---------------------------------------------------------
 
-(defun process-wartime (url)
+(define-easy-parser "wartime.org.ua" process-wartime
+  (url)
   (let* ((article-page (drakma:http-request url))
 	 (article-url url)
 	 (article-title "")
@@ -167,7 +209,9 @@
 ;;---------------------------------------------------------
 
 (defun process-general (url)
-  "General processor, if everything else fails."
+  "Загальний оброник. На випадок, якщо спеціалізованого обробника
+нема."
+
   (let* ((article-page (drakma:http-request url))
 	 (article-url url)
 	 (article-title "")
@@ -204,22 +248,13 @@
 ;;---------------------------------------------------------
 
 (defun process-article-url (url)
-  (let ((news-host (puri:URI-HOST (puri:URI url))))
-    (cond
-      ((search "ukrinform.ua" news-host)
-       (process-ukrinform url))
-
-      ((search "online.wsj.com" news-host)
-       (process-wsj url))
-
-      ((search "wartime.org.ua" news-host)
-       (process-wartime url))
-
-      ((search "zeit.de" news-host)
-       (process-zeit url))
-
-      (t
-       (process-general url)))))
+  "Тут виконується перенаправлення на конкретну фукнцію-обробник для
+посилання."
+  (let* ((news-host (puri:URI-HOST (puri:URI url)))
+	 (easy-parser (dispatch-easy-parser news-host)))
+    (if easy-parser
+	(funcall easy-parser url)
+	(process-general url))))
 
 ;;---------------------------------------------------------
 
@@ -227,6 +262,8 @@
   "Скорочений псевдонім для основної функції."
   (process-article-url url))
 
+;;---------------------------------------------------------
+;; Інтерфейс користувача
 ;;---------------------------------------------------------
 
 (defmacro with-html (&body body)
@@ -278,7 +315,7 @@
   (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor :port 4141))
   (format *standard-output* "Now it is time to visit http://localhost:4141/article.html~%")  
   ;; the acceptor runs in a separate thread. In order to prevent
-  ;; premature logoped exit join all threads. Even if execution does
+  ;; premature cite-web exit join all threads. Even if execution does
   ;; not go past this cycle it still will keep the server alive
   (dolist (thread (bt:all-threads))
     (bt:join-thread thread)))
